@@ -67,7 +67,7 @@ jobs:
       - name: Devnet logs
         if: always()
         working-directory: .mempool-ci
-        run: docker compose logs --no-color --tail=300 ethrex grandine > ../devnet.log || true
+        run: docker compose logs --no-color ethrex grandine > ../devnet.log || true
 
       - name: Upload logs
         if: always()
