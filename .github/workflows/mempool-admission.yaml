@@ -11,6 +11,12 @@ on:
     paths:
       - ".github/workflows/mempool-admission.yaml"
       - ".mempool-ci/**"
+  pull_request:
+    branches:
+      - forks/bogota
+    paths:
+      - ".github/workflows/mempool-admission.yaml"
+      - ".mempool-ci/**"
   workflow_dispatch:
     inputs:
       selector:
