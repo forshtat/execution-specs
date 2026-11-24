@@ -1,0 +1,114 @@
+name: eip8141-devnet
+
+# Persistent, single-validator Hegota devnet: ethrex (EL) + Lighthouse (CL +
+# validator client), staging Osaka -> Amsterdam -> Hegota over epochs just
+# like the CI-proven Kurtosis config this was derived from
+# (test/e2e/kurtosis/eip8141-single-node.yaml). See README.md for why this
+# exists as its own Compose stack instead of reusing Kurtosis directly.
+#
+# Usage:
+#   docker compose up genesis validator-keys   # one-shot: writes ./data
+#   docker compose up -d ethrex lighthouse-beacon lighthouse-validator
+
+services:
+  # One-shot: writes genesis.json (EL), genesis.ssz + config.yaml (CL), and
+  # a shared JWT secret into ./data/genesis.
+  genesis:
+    image: ethpandaops/ethereum-genesis-generator:6.1.6
+    # GENESIS_TIMESTAMP defaults to 0 (Unix epoch) - genesis.values.env only
+    # sets GENESIS_DELAY, a relative offset from GENESIS_TIMESTAMP, not from
+    # "now". Export GENESIS_TIMESTAMP=$(date +%s) in the shell before `up`,
+    # or genesis lands in 1970.
+    environment:
+      - GENESIS_TIMESTAMP
+    volumes:
+      - ./data/genesis:/data
+      - ./genesis.values.env:/config/values.env:ro
+    command: ["all"]
+
+  # One-shot: derives real EIP-2335 keystores for the genesis validators
+  # from the generator's default mnemonic. --insecure uses weak KDF params
+  # on purpose - this is a throwaway devnet key, not real stake.
+  validator-keys:
+    image: protolambda/eth2-val-tools:latest
+    depends_on:
+      genesis:
+        condition: service_completed_successfully
+    volumes:
+      - ./data/validator-keys:/data
+    command:
+      - keystores
+      - --insecure
+      - --source-mnemonic
+      - "sleep moment list remain like wall lake industry canvas wonder ecology elite duck salad naive syrup frame brass utility club odor country obey pudding"
+      - --source-min=0
+      - --source-max=32
+      # eth2-val-tools refuses to write into a path that already exists at
+      # all - a bind-mount target is always pre-created as an empty
+      # directory, so this has to be a fresh subdirectory of it, not /data
+      # itself.
+      - --out-loc=/data/keystores
+
+  ethrex:
+    image: ethpandaops/ethrex:bogota-devnet-1  # ethrex/v29.0.1-bogota-devnet-1-107a5b1ec
+    depends_on:
+      genesis:
+        condition: service_completed_successfully
+    volumes:
+      - ./data/genesis:/genesis:ro
+      - ./data/ethrex:/data
+    ports:
+      - "30303:30303/tcp"
+      - "30303:30303/udp"
+      # Deliberately open - the miner's own privileged submission port,
+      # exposed anyway per this devnet's demonstration-only scope (see
+      # README.md).
+      - "8545:8545/tcp"
+    command:
+      - "--network=/genesis/metadata/genesis.json"
+      - "--datadir=/data"
+      - "--http.addr=0.0.0.0"
+      - "--http.port=8545"
+      - "--http.api=eth,net,web3,debug,admin,txpool"
+      - "--authrpc.addr=0.0.0.0"
+      - "--authrpc.port=8551"
+      - "--authrpc.jwtsecret=/genesis/jwt/jwtsecret"
+      - "--log.level=debug"
+      # Default (snap) needs peer-verified state to ever consider itself
+      # synced - irrelevant and harmful for an isolated single-node chain
+      # with zero peers, which otherwise reports PayloadStatus::Syncing to
+      # every forkchoiceUpdated call forever.
+      - "--syncmode=full"
+      - "--p2p.addr=0.0.0.0"
+      - "--p2p.port=30303"
+      - "--discovery.port=30303"
+
+  grandine:
+    image: ethpandaops/grandine:glamsterdam-devnet-8-minimal
+    depends_on:
+      validator-keys:
+        condition: service_completed_successfully
+      ethrex:
+        condition: service_started
+    volumes:
+      - ./data/genesis:/genesis:ro
+      - ./data/grandine:/data
+      - ./data/validator-keys/keystores/teku-keys:/keys:ro
+      - ./data/validator-keys/keystores/teku-secrets:/secrets:ro
+    ports:
+      - "5052:5052"
+    command:
+      - --network=custom
+      - --configuration-file=/genesis/metadata/config.yaml
+      - --genesis-state-file=/genesis/metadata/genesis.ssz
+      - --data-dir=/data
+      - --eth1-rpc-urls=http://ethrex:8551
+      - --jwt-secret=/genesis/jwt/jwtsecret
+      - --keystore-dir=/keys
+      - --keystore-password-dir=/secrets
+      - --suggested-fee-recipient=0x5544596212F91984C986A919C8026DF0576816f9
+      - --http-address=0.0.0.0
+      - --http-port=5052
+      - --libp2p-port=9000
+      - --disable-upnp
+      - --supernode

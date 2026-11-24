@@ -1,0 +1,84 @@
+name: Mempool Admission (EIP-8141, ethrex devnet)
+
+# Runs the `mempool_admission` tests (`execute remote`) against a local
+# single-node Bogota devnet: stock ethrex `bogota-devnet-1` + Grandine.
+# Not a required check: verdicts of the draft tests are not yet validated.
+
+on:
+  push:
+    branches:
+      - mempool-ci
+    paths:
+      - ".github/workflows/mempool-admission.yaml"
+      - ".mempool-ci/**"
+  workflow_dispatch:
+    inputs:
+      selector:
+        description: "pytest path or node id (default: one known-passing test)"
+        default: "tests/bogota/eip8141_frame_transactions/test_mempool_verify_gas.py::test_verify_gas_ignores_frames_after_prefix[fork_Bogota-mempool_test-self_verify]"
+
+concurrency:
+  group: mempool-admission-${{ github.run_id }}
+
+env:
+  # Let ethrex's payload builds on pre-setup parents expire before sending.
+  EXECUTE_MEMPOOL_SETTLE_BLOCKS: "6"
+  SELECTOR: ${{ inputs.selector || 'tests/bogota/eip8141_frame_transactions/test_mempool_verify_gas.py::test_verify_gas_ignores_frames_after_prefix[fork_Bogota-mempool_test-self_verify]' }}
+  # Throwaway devnet key (premined in .mempool-ci/genesis.values.env).
+  SEED_KEY: "0x06f911c1ecb2053bb443ba0a0e28d630c583c3c0c2f334a9ecdc8c7c6ad4ea15"
+
+jobs:
+  mempool-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          # The tests live on this branch; this workflow file is on the default branch.
+          ref: mempool-ci
+
+      - uses: ./.github/actions/setup-uv
+
+      - name: Install test framework
+        run: uv sync --all-extras
+
+      - name: Start devnet (ethrex bogota-devnet-1 + Grandine)
+        working-directory: .mempool-ci
+        run: |
+          export GENESIS_TIMESTAMP=$(date +%s)
+          docker compose up genesis validator-keys
+          docker compose up -d --no-deps ethrex grandine
+
+      - name: Wait for the chain to pass the Hegota fork
+        run: |
+          for i in $(seq 1 90); do
+            n=$(curl -s -X POST -H 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+              localhost:8545 | python3 -c 'import sys,json;print(int(json.load(sys.stdin)["result"],16))' 2>/dev/null || echo 0)
+            echo "block $n"
+            [ "$n" -ge 20 ] && exit 0
+            sleep 10
+          done
+          echo "chain did not reach block 20" >&2; exit 1
+
+      - name: Run mempool_admission tests
+        run: |
+          uv run execute remote --fork=Bogota \
+            --rpc-endpoint=http://localhost:8545 \
+            --rpc-seed-key="$SEED_KEY" --chain-id=1337 \
+            -m mempool_admission -q -rfEp "$SELECTOR"
+
+      - name: Devnet logs
+        if: always()
+        working-directory: .mempool-ci
+        run: docker compose logs --no-color ethrex grandine > ../devnet.log || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: mempool-admission-logs
+          path: |
+            devnet.log
+            logs/
+          if-no-files-found: ignore
