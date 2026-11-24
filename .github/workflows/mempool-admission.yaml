@@ -18,8 +18,7 @@ on:
         default: "tests/bogota/eip8141_frame_transactions/test_mempool_verify_gas.py::test_verify_gas_ignores_frames_after_prefix[fork_Bogota-mempool_test-self_verify]"
 
 concurrency:
-  group: mempool-admission-${{ github.ref }}
-  cancel-in-progress: true
+  group: mempool-admission-${{ github.run_id }}
 
 env:
   SELECTOR: ${{ inputs.selector || 'tests/bogota/eip8141_frame_transactions/test_mempool_verify_gas.py::test_verify_gas_ignores_frames_after_prefix[fork_Bogota-mempool_test-self_verify]' }}
