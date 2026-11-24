@@ -39,6 +39,16 @@ jobs:
       - name: Install test framework
         run: uv sync --all-extras
 
+      - name: Checkout skandha
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          repository: forshtat/mempool-workshop-sidecar
+          ref: eels-rpc-passthrough
+          path: skandha-src
+
+      - name: Build skandha image
+        run: docker build -t skandha:ci skandha-src
+
       - name: Start devnet (ethrex bogota-devnet-1 + Grandine)
         working-directory: .mempool-ci
         run: |
@@ -58,12 +68,39 @@ jobs:
           done
           echo "chain did not reach block 20" >&2; exit 1
 
-      - name: Run mempool_admission tests
+      - name: Start skandha
+        run: |
+          docker run -d --name skandha --network host \
+            -v "$PWD/.mempool-ci/skandha-config.json:/config.json:ro" \
+            skandha:ci node --configFile /config.json --dataDir /tmp/skandha \
+            --api.port 14337 --p2p.port 4337 --executor.bundlingMode manual --redirectRpc
+          for i in $(seq 1 60); do
+            v=$(curl -s -X POST -H 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"web3_clientVersion","params":[]}' \
+              localhost:14337/rpc/ || true)
+            echo "$v" | grep -q '"skandha/' && { echo "skandha up: $v"; exit 0; }
+            sleep 2
+          done
+          echo "skandha did not come up" >&2; docker logs skandha | tail -50; exit 1
+
+      - name: Run mempool_admission tests (ethrex directly)
         run: |
           uv run execute remote --fork=Bogota \
             --rpc-endpoint=http://localhost:8545 \
             --rpc-seed-key="$SEED_KEY" --chain-id=1337 \
             -m mempool_admission -q -rfEp "$SELECTOR"
+
+      - name: Run mempool_admission tests (through skandha)
+        if: always()
+        run: |
+          uv run execute remote --fork=Bogota \
+            --rpc-endpoint=http://localhost:14337/rpc/ \
+            --rpc-seed-key="$SEED_KEY" --chain-id=1337 \
+            -m mempool_admission -q -rfEp "$SELECTOR"
+
+      - name: Skandha logs
+        if: always()
+        run: docker logs skandha > skandha.log 2>&1 || true
 
       - name: Devnet logs
         if: always()
@@ -77,5 +114,6 @@ jobs:
           name: mempool-admission-logs
           path: |
             devnet.log
+            skandha.log
             logs/
           if-no-files-found: ignore
