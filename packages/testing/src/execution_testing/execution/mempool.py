@@ -1,5 +1,6 @@
 """Test execution format to check a client's public mempool admission."""
 
+import os
 import time
 from typing import Any, ClassVar, Dict, List, Sequence, Tuple
 
@@ -275,6 +276,9 @@ class MempoolAdmission(BaseExecute):
         return ExecuteResult(benchmark_gas_used=benchmark_gas_used)
 
     SETTLE_TIMEOUT: ClassVar[float] = 60.0
+    # Extra pause after the new block, so the first send lands mid-slot and
+    # not on the slot boundary where clients still run builds on old heads.
+    SETTLE_SECONDS_ENV: ClassVar[str] = "EXECUTE_MEMPOOL_SETTLE_SECONDS"
 
     @staticmethod
     def _latest_block_number(eth_rpc: EthRPC) -> int:
@@ -288,6 +292,7 @@ class MempoolAdmission(BaseExecute):
         deadline = time.monotonic() + self.SETTLE_TIMEOUT
         while time.monotonic() < deadline:
             if self._latest_block_number(eth_rpc) > start:
+                time.sleep(float(os.environ.get(self.SETTLE_SECONDS_ENV, "0")))
                 return
             time.sleep(0.5)
         logger.warning(
