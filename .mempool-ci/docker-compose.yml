@@ -73,7 +73,7 @@ services:
       - "--authrpc.addr=0.0.0.0"
       - "--authrpc.port=8551"
       - "--authrpc.jwtsecret=/genesis/jwt/jwtsecret"
-      - "--log.level=debug"
+      - "--log.level=info"
       # Default (snap) needs peer-verified state to ever consider itself
       # synced - irrelevant and harmful for an isolated single-node chain
       # with zero peers, which otherwise reports PayloadStatus::Syncing to

@@ -48,9 +48,18 @@ class FakeEthRPC:
         self.dropped = dropped or set()
         self.known = known or set()
         self.included = included or set()
+        self.head = 0
         self.sent: List[Hash] = []
         self.waited: List[Hash] = []
         self.locked = False
+
+    def get_block_by_number(
+        self, block_number: Any = "latest", full_txs: bool = True
+    ) -> Any:
+        """Advance the head by one block on every query."""
+        del block_number, full_txs
+        self.head += 1
+        return {"number": hex(self.head)}
 
     @property
     def transaction_polling_context(self) -> Any:

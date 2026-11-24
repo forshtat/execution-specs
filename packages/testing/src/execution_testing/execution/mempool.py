@@ -1,5 +1,6 @@
 """Test execution format to check a client's public mempool admission."""
 
+import time
 from typing import Any, ClassVar, Dict, List, Sequence, Tuple
 
 import pytest
@@ -224,6 +225,11 @@ class MempoolAdmission(BaseExecute):
         inconclusive: List[str] = []
         admitted: Dict[Tuple, AdmittedTransaction] = {}
         receipts: List[Dict[str, Any]] = []
+        # The setup transactions (deployments, funding) were just mined.
+        # Let one more block pass before the first send, so the verdicts
+        # are not taken while the client still builds payloads on the
+        # previous head. The tests target mempool admission, not that race.
+        self._wait_for_next_block(eth_rpc)
         try:
             with eth_rpc.transaction_polling_context:
                 for tx_index, entry in enumerate(self.txs):
@@ -267,6 +273,26 @@ class MempoolAdmission(BaseExecute):
                 int(receipt["gasUsed"], 16) for receipt in receipts
             )
         return ExecuteResult(benchmark_gas_used=benchmark_gas_used)
+
+    SETTLE_TIMEOUT: ClassVar[float] = 60.0
+
+    @staticmethod
+    def _latest_block_number(eth_rpc: EthRPC) -> int:
+        """Return the number of the latest block."""
+        block = eth_rpc.get_block_by_number("latest", full_txs=False)
+        return int(block["number"], 16)
+
+    def _wait_for_next_block(self, eth_rpc: EthRPC) -> None:
+        """Wait until a block newer than the current head exists."""
+        start = self._latest_block_number(eth_rpc)
+        deadline = time.monotonic() + self.SETTLE_TIMEOUT
+        while time.monotonic() < deadline:
+            if self._latest_block_number(eth_rpc) > start:
+                return
+            time.sleep(0.5)
+        logger.warning(
+            f"No block after {start} within {self.SETTLE_TIMEOUT}s; sending"
+        )
 
     def _send(
         self,
