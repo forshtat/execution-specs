@@ -279,6 +279,8 @@ class MempoolAdmission(BaseExecute):
     # Extra pause after the new block, so the first send lands mid-slot and
     # not on the slot boundary where clients still run builds on old heads.
     SETTLE_SECONDS_ENV: ClassVar[str] = "EXECUTE_MEMPOOL_SETTLE_SECONDS"
+    # Blocks to wait after the setup transactions before the first send.
+    SETTLE_BLOCKS_ENV: ClassVar[str] = "EXECUTE_MEMPOOL_SETTLE_BLOCKS"
 
     @staticmethod
     def _latest_block_number(eth_rpc: EthRPC) -> int:
@@ -289,9 +291,10 @@ class MempoolAdmission(BaseExecute):
     def _wait_for_next_block(self, eth_rpc: EthRPC) -> None:
         """Wait until a block newer than the current head exists."""
         start = self._latest_block_number(eth_rpc)
-        deadline = time.monotonic() + self.SETTLE_TIMEOUT
+        blocks = int(os.environ.get(self.SETTLE_BLOCKS_ENV, "1"))
+        deadline = time.monotonic() + self.SETTLE_TIMEOUT * blocks
         while time.monotonic() < deadline:
-            if self._latest_block_number(eth_rpc) > start:
+            if self._latest_block_number(eth_rpc) >= start + blocks:
                 time.sleep(float(os.environ.get(self.SETTLE_SECONDS_ENV, "0")))
                 return
             time.sleep(0.5)

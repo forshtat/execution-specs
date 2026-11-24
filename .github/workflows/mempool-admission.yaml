@@ -21,8 +21,8 @@ concurrency:
   group: mempool-admission-${{ github.run_id }}
 
 env:
-  # Send mid-slot (slots are 6 s), not on the slot boundary.
-  EXECUTE_MEMPOOL_SETTLE_SECONDS: "3"
+  # Let ethrex's payload builds on pre-setup parents expire before sending.
+  EXECUTE_MEMPOOL_SETTLE_BLOCKS: "6"
   SELECTOR: ${{ inputs.selector || 'tests/bogota/eip8141_frame_transactions/test_mempool_verify_gas.py::test_verify_gas_ignores_frames_after_prefix[fork_Bogota-mempool_test-self_verify]' }}
   # Throwaway devnet key (premined in .mempool-ci/genesis.values.env).
   SEED_KEY: "0x06f911c1ecb2053bb443ba0a0e28d630c583c3c0c2f334a9ecdc8c7c6ad4ea15"
